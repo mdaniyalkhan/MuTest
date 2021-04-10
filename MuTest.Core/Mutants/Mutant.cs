@@ -11,7 +11,7 @@ namespace MuTest.Core.Mutants
         [JsonProperty("mutation")]
         public Mutation Mutation { get; set; }
 
-        [JsonIgnore]
+        [JsonProperty("mutant-status")]
         public MutantStatus ResultStatus { get; set; }
 
         [JsonProperty("status")]

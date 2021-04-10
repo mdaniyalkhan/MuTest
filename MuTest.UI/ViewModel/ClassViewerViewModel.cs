@@ -409,7 +409,7 @@ namespace Dashboard.ViewModel
                 var libraryPathName = $"{Path.GetDirectoryName(_source.TestClaz.ClassLibrary)}0";
                 Path.GetDirectoryName(_source.TestClaz.ClassLibrary).DirectoryCopy(libraryPathName);
                 var xml = $@"
-                            <Reference Include=""KellermanSoftware.Compare-NET-Objects, Version=4.67.0.0, Culture=neutral, PublicKeyToken=d970ace04cc85217, processorArchitecture=MSIL"">
+                            <Reference Include=""KellermanSoftware.Compare-NET-Objects, Version=4.73.0.0, Culture=neutral, PublicKeyToken=d970ace04cc85217, processorArchitecture=MSIL"">
                               <SpecificVersion>False</SpecificVersion>
                               <HintPath>{libraryPathName}\KellermanSoftware.Compare-NET-Objects.dll</HintPath>
                             </Reference>

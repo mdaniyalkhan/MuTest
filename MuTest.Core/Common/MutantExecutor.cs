@@ -118,8 +118,13 @@ namespace MuTest.Core.Common
             PrintMutationReport(mutationProcessLog, methodDetails);
         }
 
-        private void PrintMutationReport(StringBuilder mutationProcessLog, IList<MethodDetail> methodDetails)
+        public void PrintMutationReport(StringBuilder mutationProcessLog, IList<MethodDetail> methodDetails)
         {
+            if (mutationProcessLog == null)
+            {
+                throw new ArgumentNullException(nameof(mutationProcessLog));
+            }
+
             mutationProcessLog.AppendLine("<fieldset style=\"margin-bottom:10; margin-top:10\">");
             mutationProcessLog.AppendLine("Mutation Report".PrintImportantWithLegend());
             mutationProcessLog.Append("  ".PrintWithPreTag());
@@ -139,7 +144,7 @@ namespace MuTest.Core.Common
 
                 foreach (var mutant in method.Mutants)
                 {
-                    var lineNumber = mutant.Mutation.OriginalNode.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                    var lineNumber = mutant.Mutation.Location;
                     mutationProcessLog
                         .Append(
                             $"Line: {lineNumber.ToString().PrintImportant(color: Colors.Blue)} - {mutant.ResultStatus.ToString().PrintImportant()} - {mutant.Mutation.DisplayName.Encode()}"
@@ -344,6 +349,7 @@ namespace MuTest.Core.Common
 
         public void PrintMutatorSummary(StringBuilder mutationProcessLog)
         {
+            _source.MutatorWiseMutationScores.Clear();
             var mutators = _source.MethodDetails
                 .SelectMany(x => x.Mutants)
                 .GroupBy(grp => grp.Mutation.Type)
@@ -374,6 +380,22 @@ namespace MuTest.Core.Common
                 mutationProcessLog.Append($"Coverage: Mutation({mutation}) [Survived({survived}) Killed({killed}) Not Covered({uncovered}) Timeout({timeout}) Build Errors({buildErrors}) Skipped({skipped})]"
                     .PrintWithPreTagWithMarginImportant(color: Colors.Blue));
                 mutationProcessLog.AppendLine("</fieldset>");
+
+                _source.MutatorWiseMutationScores.Add(new MutatorMutationScore
+                {
+                    Mutator = mutator.Mutator.ToString(),
+                    MutationScore = new MutationScore
+                    {
+                        BuildErrors = buildErrors,
+                        Coverage = coverage,
+                        Covered = covered,
+                        Killed = killed,
+                        Skipped = skipped,
+                        Survived = survived,
+                        Timeout = timeout,
+                        Uncovered = uncovered
+                    }
+                });
             }
 
             mutationProcessLog.AppendLine("</fieldset>");

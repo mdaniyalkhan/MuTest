@@ -30,6 +30,7 @@
     <IsWebBootstrapper>false</IsWebBootstrapper>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -102,6 +103,10 @@
     </BootstrapperPackage>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\MuTest.Api.Clients\MuTest.Api.Clients.csproj">
+      <Project>{08ae088a-9ba3-480a-85ee-c3be51bfc15d}</Project>
+      <Name>MuTest.Api.Clients</Name>
+    </ProjectReference>
     <ProjectReference Include="..\MuTest.Core\MuTest.Core.csproj">
       <Project>{a7a2e9a6-9927-41a9-b67d-ce76c5ca8f42}</Project>
       <Name>MuTest.Core</Name>
@@ -113,13 +118,13 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="HtmlAgilityPack">
-      <Version>1.11.28</Version>
+      <Version>1.11.32</Version>
     </PackageReference>
     <PackageReference Include="Humanizer.Core">
       <Version>2.8.26</Version>
     </PackageReference>
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers">
-      <Version>3.3.0</Version>
+      <Version>3.3.2</Version>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
@@ -129,11 +134,32 @@
     <PackageReference Include="Microsoft.Extensions.CommandLineUtils">
       <Version>1.1.1</Version>
     </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection">
+      <Version>5.0.1</Version>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions">
+      <Version>5.0.0</Version>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Http">
+      <Version>5.0.0</Version>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Http.Polly">
+      <Version>5.0.1</Version>
+    </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Logging">
-      <Version>3.1.9</Version>
+      <Version>5.0.0</Version>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Options">
+      <Version>5.0.0</Version>
     </PackageReference>
     <PackageReference Include="Newtonsoft.Json">
       <Version>12.0.3</Version>
+    </PackageReference>
+    <PackageReference Include="Polly">
+      <Version>7.2.1</Version>
+    </PackageReference>
+    <PackageReference Include="Polly.Extensions.Http">
+      <Version>3.0.0</Version>
     </PackageReference>
     <PackageReference Include="System.Collections.Immutable">
       <Version>5.0.0</Version>
@@ -148,7 +174,7 @@
       <Version>1.7.0</Version>
     </PackageReference>
     <PackageReference Include="System.Text.Encoding.CodePages">
-      <Version>4.7.1</Version>
+      <Version>5.0.0</Version>
     </PackageReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

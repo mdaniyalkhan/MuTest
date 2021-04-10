@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="CompareNETObjects" Version="4.67.0" />
+    <PackageReference Include="CompareNETObjects" Version="4.73.0" />
     <PackageReference Include="DeepCloner" Version="0.10.2" />
   </ItemGroup>
 

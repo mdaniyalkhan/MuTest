@@ -12,8 +12,13 @@ namespace MuTest.Core.Mutants
         [JsonIgnore]
         public SyntaxNode OriginalNode { get; set; }
 
+        private int? _location;
         [JsonProperty("line-number")]
-        public int? Location => OriginalNode?.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+        public int? Location
+        {
+            get => _location ?? (_location = OriginalNode?.GetLocation().GetLineSpan().StartLinePosition.Line + 1);
+            set => _location = value;
+        }
 
         [JsonIgnore]
         public SyntaxNode ReplacementNode { get; set; }

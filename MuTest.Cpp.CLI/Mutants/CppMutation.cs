@@ -20,7 +20,7 @@ namespace MuTest.Cpp.CLI.Mutants
         [JsonProperty("mutant-detail")]
         public string DisplayName { get; set; }
 
-        [JsonIgnore]
+        [JsonProperty("mutator-type")]
         public MutatorType Type { get; set; }
 
         [JsonIgnore]

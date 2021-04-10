@@ -3,6 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web;
@@ -291,6 +293,26 @@ namespace MuTest.Core.Utility
             }
 
             return string.Concat(message.Take(30000));
+        }
+
+        public static string ComputeHash(this string content)
+        {
+            if (content == null)
+            {
+                return string.Empty;
+            }
+
+            using (var sha256Hash = SHA256.Create())
+            {
+                var bytes = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(content));
+
+                var builder = new StringBuilder();
+                foreach (var b in bytes)
+                {
+                    builder.Append(b.ToString("x2"));
+                }
+                return builder.ToString();
+            }
         }
 
         public static string UnBoxType(this string type)

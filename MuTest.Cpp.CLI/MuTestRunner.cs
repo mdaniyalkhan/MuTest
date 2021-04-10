@@ -4,12 +4,14 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using MuTest.Api.Clients.ServiceClients;
 using MuTest.Core.Common;
 using MuTest.Core.Common.Settings;
 using MuTest.Core.Exceptions;
 using MuTest.Core.Model;
 using MuTest.Core.Mutants;
 using MuTest.Core.Testing;
+using MuTest.Core.Utility;
 using MuTest.Cpp.CLI.Core;
 using MuTest.Cpp.CLI.Core.AridNodes;
 using MuTest.Cpp.CLI.Model;
@@ -28,6 +30,7 @@ namespace MuTest.Cpp.CLI
         public static readonly MuTestSettings MuTestSettings = MuTestSettingsSection.GetSettings();
 
         private readonly IChalk _chalk;
+        private readonly IFirebaseApiClient _client;
 
         public ICppDirectoryFactory DirectoryFactory { get; }
 
@@ -44,13 +47,14 @@ namespace MuTest.Cpp.CLI
 
         public ICppMutantExecutor MutantsExecutor { get; private set; }
 
-        public MuTestRunner(
-            IChalk chalk,
+        public MuTestRunner(IChalk chalk,
             ICppDirectoryFactory directoryFactory,
+            IFirebaseApiClient client,
             IMutantSelector mutantsSelector = null,
             IAridNodeMutantFilterer aridNodeMutantFilterer = null)
         {
             _chalk = chalk;
+            _client = client;
             DirectoryFactory = directoryFactory;
             _mutantsSelector = mutantsSelector ?? new MutantSelector();
             var aridNodeFilterProvider = new AridNodeFilterProvider();
@@ -130,23 +134,56 @@ namespace MuTest.Cpp.CLI
 
                     _chalk.Default($"\nNumber of Mutants: {_cppClass.Mutants.Count}\n");
 
-                    if (_cppClass.Mutants.Any())
-                    {
-                        MutantsExecutor = new CppMutantExecutor(_cppClass, Context, MuTestSettings)
-                        {
-                            EnableDiagnostics = _options.EnableDiagnostics,
-                            KilledThreshold = _options.KilledThreshold,
-                            SurvivedThreshold = _options.SurvivedThreshold,
-                            NumberOfMutantsExecutingInParallel = _options.ConcurrentTestRunners
-                        };
+                    var sourceHash = _cppClass
+                        .SourceClass
+                        .GetCodeFileContent()
+                        .ComputeHash();
 
-                        _totalMutants = _cppClass.NotRunMutants.Count;
-                        _mutantProgress = 0;
+                    var testHash = _cppClass
+                        .TestClass
+                        .GetCodeFileContent()
+                        .ComputeHash();
+
+                    _cppClass.Sha256 = (sourceHash + testHash).ComputeHash();
+
+                    var data = await _client.GetFileDataFromStorage(_cppClass.Sha256);
+                    _cppClass.StoreInDb = true;
+
+                    if (data != null)
+                    {
+                        var cppClass = JsonConvert.DeserializeObject<CppClass>(data);
+                        cppClass.StoreInDb = false;
+                        cppClass.SourceClass = _cppClass.SourceClass;
+                        cppClass.SourceHeader = _cppClass.SourceHeader;
+                        cppClass.TestClass = _cppClass.TestClass;
+                        cppClass.TestProject = _cppClass.TestProject;
+                        cppClass.Configuration = _cppClass.Configuration;
+                        cppClass.Target = _cppClass.Target;
+                        cppClass.Platform = _cppClass.Platform;
+                        cppClass.TestSolution = _cppClass.TestSolution;
+                        cppClass.IncludeBuildEvents = _cppClass.IncludeBuildEvents;
+
+                        _cppClass = cppClass;
+                    }
+
+                    MutantsExecutor = new CppMutantExecutor(_cppClass, Context, MuTestSettings)
+                    {
+                        EnableDiagnostics = _options.EnableDiagnostics,
+                        KilledThreshold = _options.KilledThreshold,
+                        SurvivedThreshold = _options.SurvivedThreshold,
+                        NumberOfMutantsExecutingInParallel = _options.ConcurrentTestRunners
+                    };
+
+                    _totalMutants = _cppClass.NotRunMutants.Count;
+                    _mutantProgress = 0;
+
+                    if (_cppClass.Mutants.Any() && data == null)
+                    {
                         MutantsExecutor.MutantExecuted += MutantAnalyzerOnMutantExecuted;
                         await MutantsExecutor.ExecuteMutants();
                     }
 
-                    GenerateReports();
+                    await GenerateReports();
                 }
             }
             finally
@@ -397,7 +434,11 @@ namespace MuTest.Cpp.CLI
                             }
 
                             _chalk.Yellow($"\nCode Coverage for Class {Path.GetFileName(_cppClass.SourceClass)} is {decimal.Divide(coveredLines, totalLines):P} ({coveredLines}/{totalLines})\n");
-                            _cppClass.Coverage = Coverage.Create(coveredLines, totalLines - coveredLines, 0, 0);
+                            _cppClass.Coverage = new Coverage
+                            {
+                                LinesCovered = coveredLines,
+                                LinesNotCovered = totalLines - coveredLines
+                            };
 
                             var factor = Context.UseMultipleSolutions || !Context.NamespaceAdded
                                 ? 0u
@@ -421,7 +462,7 @@ namespace MuTest.Cpp.CLI
             testExecutor.OutputDataReceived -= OutputData;
         }
 
-        private void GenerateReports()
+        private async Task GenerateReports()
         {
             var consoleBuilder = new StringBuilder();
             if (_cppClass != null)
@@ -436,7 +477,14 @@ namespace MuTest.Cpp.CLI
                 _chalk.Default($"{Environment.NewLine}{consoleBuilder.ToString().ConvertToPlainText()}{Environment.NewLine}");
 
                 _cppClass.ExecutionTime = _stopwatch.ElapsedMilliseconds;
+
                 var builder = new StringBuilder(HtmlTemplate);
+
+                if (!_cppClass.StoreInDb)
+                {
+                    MutantsExecutor?.PrintMutationReport(new StringBuilder(), _cppClass.Mutants);
+                }
+
                 builder.Append(MutantsExecutor?.LastExecutionOutput.PrintImportant() ?? string.Empty);
                 MutantsExecutor?.PrintMutatorSummary(builder, _cppClass.Mutants);
                 MutantsExecutor?.PrintClassSummary(_cppClass, builder);
@@ -444,6 +492,11 @@ namespace MuTest.Cpp.CLI
                 builder.AppendLine("Execution Time: ".PrintImportantWithLegend());
                 builder.Append($"{_stopwatch.Elapsed}".PrintWithPreTagWithMarginImportant());
                 builder.AppendLine("</fieldset>");
+
+                if (_cppClass.StoreInDb)
+                {
+                    await StoreInDb();
+                }
 
                 var fileName = Path.GetFileNameWithoutExtension(_cppClass.SourceClass)?.Replace(".", "_");
                 CreateHtmlReport(builder, fileName);
@@ -454,6 +507,39 @@ namespace MuTest.Cpp.CLI
                         Result = _cppClass
                     });
             }
+        }
+
+        private async Task StoreInDb()
+        {
+            var result = new MutationResult
+            {
+                Coverage = new CodeCoverage
+                {
+                    Covered = _cppClass.Coverage?.LinesCovered ?? 0,
+                    Uncovered = _cppClass.Coverage?.LinesNotCovered ?? 0
+                },
+                Key = _cppClass.Sha256,
+                DateCreated = DateTime.UtcNow,
+                Mutation = new Api.Clients.ServiceClients.Mutation
+                {
+                    Survived = _cppClass.MutationScore.Survived,
+                    Killed = _cppClass.MutationScore.Killed
+                },
+                NoOfTests = _cppClass.NumberOfTests,
+                Source = _cppClass.SourceClass.GithubPath(),
+                Test = _cppClass.TestClass.GithubPath()
+            };
+
+            foreach (var score in _cppClass.MutatorWiseMutationScores)
+            {
+                result.MutatorWiseMutations.Add(score.Mutator, new Api.Clients.ServiceClients.Mutation
+                {
+                    Killed = score.MutationScore.Killed,
+                    Survived = score.MutationScore.Survived
+                });
+            }
+
+            await _client.StoreInDatabaseAsync(result);
         }
 
         private void CreateJsonReport<T>(string fileName, T output)
@@ -476,6 +562,11 @@ namespace MuTest.Cpp.CLI
 
                 file.Create().Close();
                 File.WriteAllText(outputPath, JsonConvert.SerializeObject(output, Formatting.Indented));
+
+                if (_cppClass.StoreInDb && output is JsonOptions data)
+                {
+                    _client.StoreFileAsync(_cppClass.Sha256, JsonConvert.SerializeObject(data.Result));
+                }
 
                 _chalk.Green($"\nYour json report has been generated at: \n {file.FullName} \n");
             }

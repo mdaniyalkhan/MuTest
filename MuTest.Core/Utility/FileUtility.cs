@@ -310,6 +310,34 @@ namespace MuTest.Core.Utility
             return relativePath;
         }
 
+        public static string GithubPath(this string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                throw new ArgumentException("Value cannot be null or whitespace.", nameof(path));
+            }
+
+            var file = new FileInfo(path);
+            var dir = file.Directory;
+            var parent = dir?.Parent;
+            while (parent != null) 
+            {
+                if (parent.GetDirectories().Any(x => x.Name == ".git"))
+                {
+                    break;
+                }
+
+                parent = parent.Parent;
+            }
+
+            if (parent == null)
+            {
+                return path;
+            }
+
+            return path.RelativePath(parent.FullName);
+        }
+
         public static void WriteLines(this string path, IList<string> lines)
         {
             if (string.IsNullOrWhiteSpace(path))

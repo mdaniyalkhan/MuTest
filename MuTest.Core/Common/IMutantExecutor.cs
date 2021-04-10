@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
+using MuTest.Core.Model;
 
 namespace MuTest.Core.Common
 {
@@ -25,6 +27,8 @@ namespace MuTest.Core.Common
         event EventHandler<MutantEventArgs> MutantExecuted;
 
         Task ExecuteMutants();
+
+        void PrintMutationReport(StringBuilder mutationProcessLog, IList<MethodDetail> methodDetails);
 
         void PrintClassSummary(StringBuilder mutationProcessLog);
 

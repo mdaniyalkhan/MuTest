@@ -30,7 +30,7 @@ namespace MuTest.Core.Utility
         /// </summary>
         public static ClassDeclarationSyntax ClassNode(this SyntaxNode code)
         {
-            return code.DescendantNodes<ClassDeclarationSyntax>().FirstOrDefault();
+            return code?.DescendantNodes<ClassDeclarationSyntax>().FirstOrDefault();
         }
 
         public static ClassDeclarationSyntax GetClass(this string testClass)
@@ -45,7 +45,12 @@ namespace MuTest.Core.Utility
 
         public static ClassDeclarationSyntax ClassNode(this SyntaxNode code, string className)
         {
-            var descendantNodes = code.DescendantNodes<ClassDeclarationSyntax>();
+            var descendantNodes = code?.DescendantNodes<ClassDeclarationSyntax>();
+            if (descendantNodes == null)
+            {
+                return null;
+            }
+
             if (string.IsNullOrWhiteSpace(className))
             {
                 return descendantNodes.FirstOrDefault();
@@ -200,40 +205,15 @@ namespace MuTest.Core.Utility
         /// </summary>
         public static string ClassName(this ClassDeclarationSyntax cd)
         {
-            return cd?.Identifier.Text;
-        }
-
-
-        /// <summary>
-        /// Gets Root Node Class name including type parameters
-        /// </summary>
-        public static string ClassNameIncludingTypeParameters(this ClassDeclarationSyntax cd)
-        {
-            if (cd?.TypeParameterList == null)
-            {
-                return cd?.Identifier.Text;
-            }
-
-            var typeParametersIdentifier =
-                string.Join(", ", cd.TypeParameterList.Parameters.Select(p => p.Identifier.Text));
-            var typesIdentifier =
-                $"{cd.TypeParameterList.LessThanToken}{typeParametersIdentifier}{cd.TypeParameterList.GreaterThanToken}";
-            return $"{cd?.Identifier.Text}{typesIdentifier}";
+            return $"{cd?.Identifier.Text}{cd?.TypeParameterList?.ToString()}";
         }
 
         /// <summary>
         /// Gets Root Node Class name
         /// </summary>
-        public static ClassDeclarationSyntax ClassName(this string file, string className)
+        public static string ClassNameWithoutGeneric(this ClassDeclarationSyntax cd)
         {
-            if (string.IsNullOrWhiteSpace(file))
-            {
-                throw new ArgumentNullException(nameof(file));
-            }
-
-            return file.RootNode()
-                .DescendantNodes<ClassDeclarationSyntax>()
-                .First(x => x.ClassName() == className);
+            return cd?.Identifier.Text;
         }
 
         public static string FullName(this ClassDeclarationSyntax cd)
@@ -333,7 +313,6 @@ namespace MuTest.Core.Utility
 
             if (node != null)
             {
-
                 return node.DescendantNodes<MethodDeclarationSyntax>().Where(x =>
                 {
                     var trivia = ((SyntaxNode)x).GetLeadingTrivia();
@@ -347,6 +326,11 @@ namespace MuTest.Core.Utility
 
         public static bool IsAStringExpression(this ExpressionSyntax node)
         {
+            if (node == null)
+            {
+                return false;
+            }
+
             return node.Kind() == SyntaxKind.StringLiteralExpression ||
                    node.ChildNodes().Any(x => x.Kind() == SyntaxKind.StringLiteralExpression) ||
                    node.Kind() == SyntaxKind.InterpolatedStringExpression ||
@@ -412,28 +396,38 @@ namespace MuTest.Core.Utility
 
         public static IList<string> ChildMethodNames(this SyntaxNode method)
         {
-            return method
+            return method?
                 .DescendantNodes<InvocationExpressionSyntax>()
                 .Select(x => x.Expression.ToString()).ToList();
         }
 
         public static ClassDeclarationSyntax Class(this SyntaxNode method)
         {
-            return method.Ancestors<ClassDeclarationSyntax>().FirstOrDefault();
+            return method?.Ancestors<ClassDeclarationSyntax>().FirstOrDefault();
         }
 
         public static IList<MethodDeclarationSyntax> Methods(this ClassDeclarationSyntax claz)
         {
-            return claz.GetMethods();
+            return claz?.GetMethods();
         }
 
         public static int LineNumber(this SyntaxNode node)
         {
+            if (node == null)
+            {
+                return -1;
+            }
+
             return node.GetLocation().GetLineSpan().StartLinePosition.Line;
         }
 
         public static int EndLineNumber(this SyntaxNode node)
         {
+            if (node == null)
+            {
+                return -1;
+            }
+
             return node.GetLocation().GetLineSpan().EndLinePosition.Line;
         }
 
@@ -460,6 +454,11 @@ namespace MuTest.Core.Utility
         public static IList<TestCase> TestCases(this MethodDeclarationSyntax method)
         {
             var testCases = new List<TestCase>();
+
+            if (method == null)
+            {
+                return testCases;
+            }
 
             var methodAttributes = method.AttributeLists.SelectMany(x => x.Attributes).ToList();
             if (methodAttributes.All(x => x.Name.ToString() != "TestCaseSource"))
@@ -517,7 +516,7 @@ namespace MuTest.Core.Utility
 
         public static MethodParameterList ParameterList(this MethodDeclarationSyntax method)
         {
-            if (method.ParameterList.Parameters.Any())
+            if (method != null && method.ParameterList.Parameters.Any())
             {
                 return new MethodParameterList
                 {

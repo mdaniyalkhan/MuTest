@@ -1,11 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Net;
+using System.Net.Http;
 using Microsoft.Extensions.CommandLineUtils;
+using Microsoft.Extensions.DependencyInjection;
+using MuTest.Api.Clients.ServiceClients;
 using MuTest.Core.Common;
+using MuTest.Core.Common.Settings;
 using MuTest.Core.Exceptions;
 using MuTest.Core.Testing;
 using MuTest.Cpp.CLI.Core;
+using Polly;
+using Polly.Extensions.Http;
 using static System.Console;
 
 namespace MuTest.Cpp.CLI
@@ -14,6 +21,7 @@ namespace MuTest.Cpp.CLI
     {
         private static IChalk _chalk;
         private static IMuTestRunner _muTest;
+        public static readonly MuTestSettings MuTestSettings = MuTestSettingsSection.GetSettings();
 
         private static int Main(string[] args)
         {
@@ -21,8 +29,23 @@ namespace MuTest.Cpp.CLI
             {
                 _chalk = new Chalk();
                 Trace.Listeners.Add(new EventLogTraceListener("MuTest_CPP_CLI"));
+                var services = new ServiceCollection();
 
-                _muTest = new MuTestRunner(_chalk, new CppDirectoryFactory());
+                services
+                    .AddHttpClient<IFirebaseApiClient, FirebaseApiClient>()
+                    .AddPolicyHandler(GetRetryPolicy())
+                    .AddPolicyHandler(GetCircuitBreakerPatternPolicy());
+                services.AddSingleton(_chalk);
+                var provider = services.BuildServiceProvider();
+                var factory = provider.GetService<IHttpClientFactory>();
+
+                    _muTest = new MuTestRunner(
+                        _chalk, 
+                        new CppDirectoryFactory(),
+                        new FirebaseApiClient(
+                            factory.CreateClient(), 
+                            MuTestSettings.FireBaseDatabaseApiUrl, 
+                            MuTestSettings.FireBaseStorageApiUrl));
                 var app = new MuTestCli(_muTest);
 
                 CancelKeyPress += CancelMutationHandler;
@@ -88,6 +111,22 @@ namespace MuTest.Cpp.CLI
             {
                 _muTest.DirectoryFactory.DeleteTestFiles(_muTest.Context);
             }
+        }
+
+        private static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPatternPolicy()
+        {
+            return HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .CircuitBreakerAsync(2, TimeSpan.FromSeconds(30));
+        }
+
+        private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+        {
+            return HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .OrResult(msg => msg.StatusCode == HttpStatusCode.NotFound)
+                .OrResult(msg => msg.StatusCode == HttpStatusCode.InternalServerError)
+                .WaitAndRetryAsync(2, retryAttempy => TimeSpan.FromSeconds(Math.Pow(2, retryAttempy)));
         }
 
         private static void ShowMessage(MuTestInputException strEx)

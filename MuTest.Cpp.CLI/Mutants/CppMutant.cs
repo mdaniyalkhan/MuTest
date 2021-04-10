@@ -11,7 +11,7 @@ namespace MuTest.Cpp.CLI.Mutants
         [JsonProperty("mutation")]
         public CppMutation Mutation { get; set; }
 
-        [JsonIgnore]
+        [JsonProperty("result-status")]
         public MutantStatus ResultStatus { get; set; } = MutantStatus.NotRun;
 
         [JsonProperty("status")]

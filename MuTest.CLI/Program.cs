@@ -1,10 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Net;
+using System.Net.Http;
 using Microsoft.Extensions.CommandLineUtils;
+using Microsoft.Extensions.DependencyInjection;
+using MuTest.Api.Clients.ServiceClients;
 using MuTest.Core.Common;
+using MuTest.Core.Common.Settings;
 using MuTest.Core.Exceptions;
 using MuTest.Core.Testing;
+using Polly;
+using Polly.Extensions.Http;
 using static System.Console;
 
 namespace MuTest.Console
@@ -13,6 +20,10 @@ namespace MuTest.Console
     {
         private static IChalk _chalk;
         private static IMuTestRunner _muTest;
+        
+        public static readonly MuTestSettings MuTestSettings = MuTestSettingsSection.GetSettings();
+        
+        public static ServiceProvider Provider { get; private set; }
 
         private static int Main(string[] args)
         {
@@ -21,7 +32,21 @@ namespace MuTest.Console
                 Trace.Listeners.Add(new EventLogTraceListener("MuTestCLI"));
 
                 _chalk = new Chalk();
-                _muTest = new MuTestRunner();
+                var services = new ServiceCollection();
+
+                services.AddHttpClient<IFirebaseApiClient, FirebaseApiClient>()
+                    .AddPolicyHandler(GetRetryPolicy())
+                    .AddPolicyHandler(GetCircuitBreakerPatternPolicy());
+                services.AddSingleton(_chalk);
+                Provider = services.BuildServiceProvider();
+                var factory = Provider.GetService<IHttpClientFactory>();
+
+                _muTest = new MuTestRunner(
+                    _chalk, 
+                    new FirebaseApiClient(
+                        factory.CreateClient(), 
+                        MuTestSettings.FireBaseDatabaseApiUrl, 
+                        MuTestSettings.FireBaseStorageApiUrl));
                 var app = new MuTestCli(_muTest);
 
                 CancelKeyPress += CancelMutationHandler;
@@ -32,7 +57,7 @@ namespace MuTest.Console
             catch (MuTestInputException ex)
             {
                 ShowMessage(ex);
-				CancelMutation();
+                CancelMutation();
                 return 1;
             }
             catch (CommandParsingException ex)
@@ -48,14 +73,14 @@ namespace MuTest.Console
                 if (innerException != null && (innerException.GetType() == typeof(MuTestInputException) ||
                                                innerException.GetType().BaseType == typeof(MuTestInputException)))
                 {
-                    ShowMessage((MuTestInputException) innerException);
+                    ShowMessage((MuTestInputException)innerException);
 
                     var statusCode = MuTestExceptions[innerException.GetType()];
                     _chalk.Red($"\nStatus Code: {statusCode}\n");
                     return statusCode;
                 }
 
-                if(ex.Message.StartsWith("Unrecognized option"))
+                if (ex.Message.StartsWith("Unrecognized option"))
                 {
                     _chalk.Default($"{ex.Message}{Environment.NewLine}");
                     return 1;
@@ -79,9 +104,25 @@ namespace MuTest.Console
             CancelMutation();
         }
 
+        private static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPatternPolicy()
+        {
+            return HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .CircuitBreakerAsync(2, TimeSpan.FromSeconds(30));
+        }
+
+        private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+        {
+            return HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .OrResult(msg => msg.StatusCode == HttpStatusCode.NotFound)
+                .OrResult(msg => msg.StatusCode == HttpStatusCode.InternalServerError)
+                .WaitAndRetryAsync(2, retryAttempy => TimeSpan.FromSeconds(Math.Pow(2, retryAttempy)));
+        }
+
         private static void CancelMutation()
         {
-            if (_muTest.MutantExecutor != null)
+            if (_muTest?.MutantExecutor != null)
             {
                 _muTest.MutantExecutor.CancelMutationOperation = true;
             }

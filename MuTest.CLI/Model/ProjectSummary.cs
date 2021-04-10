@@ -36,11 +36,13 @@ namespace MuTest.Console.Model
                 ? 1
                 : MutationScore.Covered);
 
-            Coverage = Coverage.Create(
-                Convert.ToUInt32(Classes.Sum(x => x.Coverage.LinesCovered)),
-                Convert.ToUInt32(Classes.Sum(x => x.Coverage.LinesNotCovered)),
-                Convert.ToUInt32(Classes.Sum(x => x.Coverage.BlocksCovered)),
-                Convert.ToUInt32(Classes.Sum(x => x.Coverage.BlocksNotCovered)));
+            Coverage = new Coverage
+            {
+                LinesCovered = Convert.ToUInt32(Classes.Sum(x => x.Coverage.LinesCovered)),
+                LinesNotCovered = Convert.ToUInt32(Classes.Sum(x => x.Coverage.LinesNotCovered)),
+                BlocksCovered = Convert.ToUInt32(Classes.Sum(x => x.Coverage.BlocksCovered)),
+                BlocksNotCovered = Convert.ToUInt32(Classes.Sum(x => x.Coverage.BlocksNotCovered))
+            };
         }
     }
 }

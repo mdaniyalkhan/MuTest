@@ -44,11 +44,17 @@ namespace MuTest.Core.Model
         [JsonProperty("mutation-score")]
         public MutationScore MutationScore { get; } = new MutationScore();
 
+        [JsonProperty("mutator-wise-mutation")]
+        public List<MutatorMutationScore> MutatorWiseMutationScores { get; } = new List<MutatorMutationScore>();
+
         [JsonProperty("coverage")]
         public Coverage Coverage { get; set; }
 
         [JsonProperty("execution-time")]
         public long ExecutionTime { get; set; }
+
+        [JsonProperty("sha256")]
+        public string SHA256 { get; set; }
 
         [JsonProperty("include-nested-classes")]
         public bool IncludeNestedClasses { get; set; }
@@ -82,6 +88,8 @@ namespace MuTest.Core.Model
         public List<ClassCoverage> ExternalCoveredClassesExcluded => ExternalCoveredClasses.Where(x => x.NumberOfMutants == 0 || 
                                                                                                            x.Excluded ||
                                                                                                            x.ZeroSurvivedMutants).ToList();
+        [JsonIgnore]
+        public bool StoreToDb { get; set; }
 
         public void CalculateMutationScore()
         {

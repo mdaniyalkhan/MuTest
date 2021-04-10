@@ -4,35 +4,22 @@ namespace MuTest.Core.Model
 {
     public class Coverage
     {
-        public static Coverage Create(uint linesCovered, uint lineNotCovered, uint blocksCovered, uint blocksNotCovered)
-        {
-            return new Coverage(linesCovered, lineNotCovered, blocksCovered, blocksNotCovered);
-        }
-
-        private Coverage(uint linesCovered, uint lineNotCovered, uint blocksCovered, uint blocksNotCovered)
-        {
-            LinesCovered = linesCovered;
-            LinesNotCovered = lineNotCovered;
-            BlocksCovered = blocksCovered;
-            BlocksNotCovered = blocksNotCovered;
-        }
-
         public override string ToString()
         {
             return $"Lines: {LinesCovered}/{TotalLines}({LinesCoveredPercentage}) Branch: {BlocksCovered}/{TotalBlocks}({BlocksCoveredPercentage})";
         }
 
         [JsonProperty("lines-covered")]
-        public uint LinesCovered { get; }
+        public uint LinesCovered { get; set; }
 
         [JsonProperty("lines-not-covered")]
-        public uint LinesNotCovered { get; }
+        public uint LinesNotCovered { get; set; }
 
         [JsonProperty("branches-covered")]
-        public uint BlocksCovered { get; }
+        public uint BlocksCovered { get; set; }
 
         [JsonProperty("branches-not-covered")]
-        public uint BlocksNotCovered { get; }
+        public uint BlocksNotCovered { get; set; }
 
         [JsonProperty("total-lines")]
         public uint TotalLines => LinesCovered + LinesNotCovered;

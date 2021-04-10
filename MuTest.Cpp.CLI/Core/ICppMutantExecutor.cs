@@ -29,6 +29,8 @@ namespace MuTest.Cpp.CLI.Core
 
         Task ExecuteMutants();
 
+        void PrintMutationReport(StringBuilder mutationProcessLog, IList<CppMutant> mutants);
+
         void PrintMutatorSummary(StringBuilder mutationProcessLog, IList<CppMutant> mutants);
 
         void PrintClassSummary(CppClass cppClass, StringBuilder mutationProcessLog);

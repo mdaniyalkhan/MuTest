@@ -220,5 +220,19 @@ namespace MuTest.Core.Common.Settings
             get => (string)this[nameof(OpenCppCoveragePath)];
             set => value = (string)this[nameof(OpenCppCoveragePath)];
         }
+
+        [ConfigurationProperty(nameof(FireBaseDatabaseApiUrl), DefaultValue = "", IsRequired = false)]
+        public string FireBaseDatabaseApiUrl
+        {
+            get => (string)this[nameof(FireBaseDatabaseApiUrl)];
+            set => value = (string)this[nameof(FireBaseDatabaseApiUrl)];
+        }
+
+        [ConfigurationProperty(nameof(FireBaseStorageApiUrl), DefaultValue = "", IsRequired = false)]
+        public string FireBaseStorageApiUrl
+        {
+            get => (string)this[nameof(FireBaseStorageApiUrl)];
+            set => value = (string)this[nameof(FireBaseStorageApiUrl)];
+        }
     }
 }

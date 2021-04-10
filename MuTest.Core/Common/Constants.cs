@@ -76,7 +76,7 @@ namespace MuTest.Core.Common
         {
             var method = typeof(Tuple).GetMethods().FirstOrDefault(x=> x.GetParameters().Length == param.Length);
             var genericMethod = method?.MakeGenericMethod(param.Select(x=> x?.GetType() ?? typeof(string)).ToArray());
-            collection.ShouldContain(genericMethod?.Invoke(null, param));
+            collection.ToList().ShouldContain(genericMethod?.Invoke(null, param));
         }";
 
         public static readonly string CheckParameter = @"

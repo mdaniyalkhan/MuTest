@@ -4,12 +4,15 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using MuTest.Api.Clients.ServiceClients;
 using MuTest.Console.Model;
 using MuTest.Console.Options;
 using MuTest.Core.Common;
+using MuTest.Core.Common.ClassDeclarationLoaders;
 using MuTest.Core.Common.Settings;
 using MuTest.Core.Exceptions;
 using MuTest.Core.Model;
+using MuTest.Core.Model.ClassDeclarations;
 using MuTest.Core.Testing;
 using MuTest.Core.Utility;
 using Newtonsoft.Json;
@@ -25,9 +28,16 @@ namespace MuTest.Console
         public IMutantExecutor MutantExecutor { get; private set; }
 
         private SourceClassDetail _source;
-        private IChalk _chalk;
+        private readonly IChalk _chalk;
+        private readonly IFirebaseApiClient _client;
         private MuTestOptions _options;
         private Stopwatch _stopwatch;
+
+        public MuTestRunner(IChalk chalk, IFirebaseApiClient client)
+        {
+            _chalk = chalk ?? throw new ArgumentNullException(nameof(chalk));
+            _client = client ?? throw new ArgumentNullException(nameof(client));
+        }
 
         public async Task RunMutationTest(MuTestOptions options)
         {
@@ -49,18 +59,16 @@ namespace MuTest.Console
             _stopwatch = new Stopwatch();
             _stopwatch.Start();
 
-            _chalk = new Chalk();
             _options = options;
 
             if (!_options.SkipTestProjectBuild)
             {
                 var originalProject = _options.TestProjectParameter;
-                if (_options.OptimizeTestProject && 
+                if (_options.OptimizeTestProject &&
                     _options.MultipleTargetClasses.Count == 1)
                 {
                     var targetClass = _options.MultipleTargetClasses.First();
 
-                    
                     _options.TestProjectParameter = _options
                         .TestProjectParameter
                         .UpdateTestProject(targetClass.TestClassPath.GetClass().ClassName());
@@ -102,8 +110,8 @@ namespace MuTest.Console
                 EnableDiagnostics = _options.EnableDiagnostics,
                 ExecuteAllTests = _options.ExecuteAllTests,
                 IncludeNestedClasses = _options.IncludeNestedClasses,
-                IncludePartialClasses = _options.IncludePartialClasses || 
-                                        _options.UseClassFilter || 
+                IncludePartialClasses = _options.IncludePartialClasses ||
+                                        _options.UseClassFilter ||
                                         _options.ExecuteAllTests,
                 KilledThreshold = _options.KilledThreshold,
                 NoCoverage = _options.NoCoverage,
@@ -129,35 +137,66 @@ namespace MuTest.Console
 
                 try
                 {
-                    mutantAnalyzer.ExternalCoveredMutants.Clear();
-                    _source = await mutantAnalyzer.Analyze(sourceClass, className, _options.SourceProjectParameter);
+                    var sourceHash = sourceClass.GetCodeFileContent().ComputeHash();
+                    var testHash = targetClass.TestClassPath.GetCodeFileContent().ComputeHash();
+                    var hash = $"{sourceHash}-{testHash}".ComputeHash();
 
-                    if (_source.ExternalCoveredClassesIncluded.Any() && _options.AnalyzeExternalCoveredClasses)
+                    await GetFromDB(hash);
+
+                    if (_source != null)
                     {
-                        _chalk.Yellow("\n\nAnalyzing External Coverage...");
-                        mutantAnalyzer.UseExternalCodeCoverage = true;
-                        foreach (var acc in _source.ExternalCoveredClassesIncluded)
+                        var testClaz = targetClass.TestClassPath.GetClass();
+                        var loader = new SemanticsClassDeclarationLoader();
+                        _source.Claz = loader.Load(sourceClass, _options.SourceProjectParameter, className);
+                        _source.ClassLibrary = _options.SourceProjectLibraryParameter;
+                        _source.ClassProject = _options.SourceProjectParameter;
+                        _source.FilePath = sourceClass;
+
+                        _source.TestClaz = new TestClassDetail
                         {
-                            mutantAnalyzer.ExternalCoveredMutants.AddRange(acc.MutantsLines);
-                            var projectFile = new FileInfo(acc.ClassPath).FindProjectFile();
-                            mutantAnalyzer.SourceProjectLibrary = projectFile.FindLibraryPath()?.FullName;
-                            if (!string.IsNullOrWhiteSpace(mutantAnalyzer.SourceProjectLibrary))
+                            Claz = new ClassDeclaration(testClaz),
+                            FilePath = targetClass.TestClassPath,
+                            ClassProject = _options.TestProjectParameter,
+                            FullName = testClaz.FullName(),
+                            ClassLibrary = _options.TestProjectLibraryParameter,
+                            X64TargetPlatform = _options.X64TargetPlatform
+                        };
+                    }
+
+                    if (_source == null)
+                    {
+                        mutantAnalyzer.ExternalCoveredMutants.Clear();
+                        _source = await mutantAnalyzer.Analyze(sourceClass, className, _options.SourceProjectParameter);
+                        _source.SHA256 = hash;
+                        _source.StoreToDb = true;
+
+                        if (_source.ExternalCoveredClassesIncluded.Any() && _options.AnalyzeExternalCoveredClasses)
+                        {
+                            _chalk.Yellow("\n\nAnalyzing External Coverage...");
+                            mutantAnalyzer.UseExternalCodeCoverage = true;
+                            foreach (var acc in _source.ExternalCoveredClassesIncluded)
                             {
-                                var accClass = await mutantAnalyzer.Analyze(
-                                    acc.ClassPath,
-                                    acc.ClassName,
-                                    projectFile.FullName);
-
-                                accClass.CalculateMutationScore();
-
-                                if (accClass.MutationScore.Survived == 0)
+                                mutantAnalyzer.ExternalCoveredMutants.AddRange(acc.MutantsLines);
+                                var projectFile = new FileInfo(acc.ClassPath).FindProjectFile();
+                                mutantAnalyzer.SourceProjectLibrary = projectFile.FindLibraryPath()?.FullName;
+                                if (!string.IsNullOrWhiteSpace(mutantAnalyzer.SourceProjectLibrary))
                                 {
-                                    acc.ZeroSurvivedMutants = true;
+                                    var accClass = await mutantAnalyzer.Analyze(
+                                        acc.ClassPath,
+                                        acc.ClassName,
+                                        projectFile.FullName);
+
+                                    accClass.CalculateMutationScore();
+
+                                    if (accClass.MutationScore.Survived == 0)
+                                    {
+                                        acc.ZeroSurvivedMutants = true;
+                                    }
                                 }
                             }
-                        }
 
-                        mutantAnalyzer.ExternalCoveredMutants.Clear();
+                            mutantAnalyzer.ExternalCoveredMutants.Clear();
+                        }
                     }
                 }
                 catch (Exception ex) when (!(ex is MuTestInputException))
@@ -166,11 +205,11 @@ namespace MuTest.Console
                 }
                 finally
                 {
-                    MutantExecutor = mutantAnalyzer.MutantExecutor;
+                    MutantExecutor = mutantAnalyzer.MutantExecutor ?? new MutantExecutor(_source, MuTestSettings);
                     _stopwatch.Stop();
-                    if (_source != null && MutantExecutor != null)
+                    if (_source != null)
                     {
-                        GenerateReports();
+                        await GenerateReports();
 
                         if (!string.IsNullOrWhiteSpace(_options.ProcessWholeProject))
                         {
@@ -183,7 +222,7 @@ namespace MuTest.Console
                                     TestClassPath = _source.TestClaz.FilePath
                                 },
                                 MutationScore = _source.MutationScore,
-                                Coverage = _source.Coverage ?? Coverage.Create(0, 0, 0, 0)
+                                Coverage = _source.Coverage ?? new Coverage()
                             });
                         }
                     }
@@ -207,7 +246,7 @@ namespace MuTest.Console
                 {
                     builder.AppendLine("<fieldset style=\"margin-bottom:10; margin-top:10\">");
 
-                    builder.AppendLine($"{claz.TargetClass.ClassName} [{claz.TargetClass.ClassPath}]".PrintImportantWithLegend(color: Colors.Blue));
+                    builder.AppendLine($"{claz.TargetClass.ClassName} [{claz.TargetClass.ClassPath}]".PrintImportantWithLegend(color: Colors.BlueViolet));
                     builder.Append($"{claz.MutationScore.Mutation} - {claz.MutationScore}".PrintWithPreTagWithMarginImportant());
                     builder.Append($"Code Coverage - {claz.Coverage}".PrintWithPreTagWithMarginImportant());
 
@@ -218,13 +257,13 @@ namespace MuTest.Console
 
                 builder.AppendLine("<fieldset style=\"margin-bottom:10; margin-top:10\">");
                 builder.AppendLine("ProjectWise Summary".PrintImportantWithLegend());
-                builder.Append(projectSummary.MutationScore.ToString().PrintWithPreTagWithMarginImportant(color: Colors.Blue));
+                builder.Append(projectSummary.MutationScore.ToString().PrintWithPreTagWithMarginImportant(color: Colors.BlueViolet));
                 builder.Append($"Coverage: Mutation({projectSummary.MutationScore.Mutation}) {projectSummary.Coverage}".PrintWithPreTagWithMarginImportant(color: Colors.Blue));
                 builder.AppendLine("</fieldset>");
                 builder.AppendLine("</fieldset>");
 
                 CreateHtmlReport(builder, ProjectSummary);
-                CreateJsonReport(ProjectSummary, projectSummary);
+                await CreateJsonReport(ProjectSummary, projectSummary);
             }
         }
 
@@ -278,7 +317,7 @@ namespace MuTest.Console
             _chalk.Green("\nBuild Succeeded!\n");
         }
 
-        private void GenerateReports()
+        private async Task GenerateReports()
         {
             var consoleBuilder = new StringBuilder();
             MutantExecutor.PrintMutatorSummary(consoleBuilder);
@@ -292,6 +331,12 @@ namespace MuTest.Console
 
             _source.ExecutionTime = _stopwatch.ElapsedMilliseconds;
             var builder = new StringBuilder(HtmlTemplate);
+
+            if (string.IsNullOrWhiteSpace(MutantExecutor?.LastExecutionOutput))
+            {
+                MutantExecutor?.PrintMutationReport(new StringBuilder(), _source.MethodDetails);
+            }
+
             builder.Append(MutantExecutor?.LastExecutionOutput.PrintImportant() ?? string.Empty);
             MutantExecutor?.PrintMutatorSummary(builder);
             MutantExecutor?.PrintClassSummary(builder);
@@ -300,9 +345,14 @@ namespace MuTest.Console
             builder.Append($"{_stopwatch.Elapsed}".PrintWithPreTagWithMarginImportant());
             builder.AppendLine("</fieldset>");
 
-            _source.FullName = _source.Claz.Syntax.FullName();
+            if (_source.StoreToDb)
+            {
+                await StoreToDb();
+            }
+
+            _source.FullName = _source.FullName ?? _source.Claz.Syntax.FullName();
             CreateHtmlReport(builder, _source.FullName.Replace(".", "_"));
-            CreateJsonReport(
+            await CreateJsonReport(
                 _source.FullName.Replace(".", "_"),
                 new JsonOptions
                 {
@@ -311,7 +361,54 @@ namespace MuTest.Console
                 });
         }
 
-        private void CreateJsonReport<T>(string fileName, T output)
+        private async Task GetFromDB(string hash)
+        {
+            var data = await _client.GetFileDataFromStorage(hash);
+            if (data != null)
+            {
+                _source = JsonConvert.DeserializeObject<SourceClassDetail>(data);
+                _source.StoreToDb = false;
+            }
+        }
+
+        private async Task StoreToDb()
+        {
+            var mutationResult = new MutationResult
+            {
+                Key = _source.SHA256,
+                Source = _source.FilePath.GithubPath(),
+                Test = _source.TestClaz.FilePath.GithubPath(),
+                NoOfTests = _source.NumberOfTests,
+                DateCreated = DateTime.UtcNow,
+                Mutation = new Mutation
+                {
+                    Survived = _source.MutationScore.Survived,
+                    Killed = _source.MutationScore.Killed,
+                },
+                Coverage = new CodeCoverage
+                {
+                    Covered = _source.Coverage.LinesCovered,
+                    Uncovered = _source.Coverage.LinesNotCovered
+                },
+                ExternalCoverage = _source.ExternalCoverage
+            };
+
+            foreach (var score in _source.MutatorWiseMutationScores)
+            {
+                mutationResult.MutatorWiseMutations.Add(score.Mutator, new Mutation
+                {
+                    Survived = score.MutationScore.Survived,
+                    Killed = score.MutationScore.Killed
+                });
+            }
+
+            if (_source.StoreToDb)
+            {
+                await _client.StoreInDatabaseAsync(mutationResult);
+            }
+        }
+
+        private async Task CreateJsonReport<T>(string fileName, T output)
         {
             if (!string.IsNullOrWhiteSpace(_options.JsonOutputPath))
             {
@@ -331,6 +428,11 @@ namespace MuTest.Console
 
                 file.Create().Close();
                 File.WriteAllText(outputPath, JsonConvert.SerializeObject(output, Formatting.Indented));
+
+                if (_source.StoreToDb && output is JsonOptions json)
+                {
+                    await _client.StoreFileAsync(_source.SHA256, JsonConvert.SerializeObject(json.Result));
+                }
 
                 _chalk.Green($"\nYour json report has been generated at: \n {file.FullName} \n");
             }

@@ -53,9 +53,11 @@ namespace MuTest.DynamicAsserts
                                                     BindingFlags.Public |
                                                     BindingFlags.Static;
 
-        public static void SetupTestClass<T>(this T testClass, string testName, string id, int depth, bool compareChildren) where T : new()
+        public static void SetupTestClass<T>(this T testClass, string testName, string id, int depth, bool compareChildren, bool deepClone) where T : new()
         {
-            _initialClass = testClass.DeepClone();
+            _initialClass = deepClone
+                ? testClass.DeepClone()
+                : testClass.Copy(compareChildren);
             _testName = testName;
             _id = BaseDirectory + id;
             _depth = depth;

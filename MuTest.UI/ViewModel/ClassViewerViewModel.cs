@@ -52,6 +52,8 @@ namespace Dashboard.ViewModel
         public virtual ControlViewModel ChkParameterizedAsserts { get; }
 
         public virtual ControlViewModel ChkUseClassFilter { get; }
+        
+        public virtual ControlViewModel ChkDeepClone { get; }
 
         public virtual ControlViewModel ChkBuildReferences { get; }
 
@@ -95,6 +97,7 @@ namespace Dashboard.ViewModel
             ChkTargetPlatformX64 = ControlViewModel.Create();
             ChkIgnoreFailingTests = ControlViewModel.Create();
             ChkUseClassFilter = ControlViewModel.CreateWithChecked();
+            ChkDeepClone = ControlViewModel.CreateWithChecked();
             ChkIgnoreCollectionOrder = ControlViewModel.CreateWithChecked();
             ChkCompareChildren = ControlViewModel.CreateWithChecked();
             ChkParameterizedAsserts = ControlViewModel.CreateWithChecked();
@@ -475,10 +478,14 @@ namespace Dashboard.ViewModel
                                     ? "true"
                                     : "false";
 
+                                var deepClone = ChkDeepClone.IsChecked
+                                    ? "true"
+                                    : "false";
+
                                 fileLines.Add(
                                     _source.TestClaz.SetupInBaseClass || setupMethod == null
-                                        ? $"[NUnit.Framework.SetUp]public void  SetupDynamicAsserts() {{ MuTest.DynamicAsserts.ObjectGraphGenerator.SetupTestClass(this, NUnit.Framework.TestContext.CurrentContext.Test.Name, \"{id}\", {StructDept}, {compareChildren});}}\n"
-                                        : $"MuTest.DynamicAsserts.ObjectGraphGenerator.SetupTestClass(this, NUnit.Framework.TestContext.CurrentContext.Test.Name, \"{id}\", {StructDept}, {compareChildren});");
+                                        ? $"[NUnit.Framework.SetUp]public void  SetupDynamicAsserts() {{ MuTest.DynamicAsserts.ObjectGraphGenerator.SetupTestClass(this, NUnit.Framework.TestContext.CurrentContext.Test.Name, \"{id}\", {StructDept}, {compareChildren}, {deepClone});}}\n"
+                                        : $"MuTest.DynamicAsserts.ObjectGraphGenerator.SetupTestClass(this, NUnit.Framework.TestContext.CurrentContext.Test.Name, \"{id}\", {StructDept}, {compareChildren}, {deepClone});");
                             }
 
                             if (lineNumber == tearDownLocationEnd)
@@ -663,8 +670,8 @@ namespace Dashboard.ViewModel
             foreach (var method in methodsWithParameters)
             {
                 var methodName = method.MethodName();
-                var methodAsserts = asserts.Where(x => x.Method.Equals(methodName, StringComparison.InvariantCultureIgnoreCase) ||
-                                                       x.Method.StartsWith($"{methodName}(")).ToList();
+                var methodAsserts = asserts.Where(x => !string.IsNullOrWhiteSpace(x.Method) && (x.Method.Equals(methodName, StringComparison.InvariantCultureIgnoreCase) ||
+                                                       x.Method.StartsWith($"{methodName}("))).ToList();
 
                 if (methodAsserts.Any())
                 {
@@ -715,316 +722,360 @@ namespace Dashboard.ViewModel
             foreach (var method in methods)
             {
                 var methodName = method.MethodName();
-                var methodAsserts = asserts.Where(x => x.Method.Equals(methodName, StringComparison.InvariantCultureIgnoreCase) ||
-                                                       x.Method.StartsWith($"{methodName}(")).ToList();
-                Func<Assert, bool> predicate = x => x.Value.Contains(".ShouldBeGreaterThanOrEqualTo") || x.Value.Contains(".ShouldHaveSingleItem");
-                var mAssertsWithCollections = methodAsserts.Where(x => x.Asserts.Any(predicate)).ToList();
-                var assertWithElements = mAssertsWithCollections.SelectMany(x => x.Asserts).ToList();
-                foreach (var assert in assertWithElements.Where(predicate))
-                {
-                    var left = assert.Value.Substring(0, assert.Value.LastIndexOf('.'));
-                    var leftSingle = left.Replace(".Count", string.Empty).Replace(".Length", string.Empty);
-                    foreach (var assertMethod in methodAsserts.Where(x => x.Asserts.All(y => !y.Value.StartsWith(left) && !y.Value.StartsWith($"{leftSingle}.ShouldHaveSingleItem"))))
-                    {
-                        var assertValue = $"{leftSingle}.ShouldBeEmpty(),";
-                        assertMethod.Asserts.Add(new Assert(assertValue, string.Empty));
-                    }
+                var methodAsserts = asserts.Where(x => !string.IsNullOrWhiteSpace(x.Method) && 
+                                                       (x.Method.Equals(methodName, StringComparison.InvariantCultureIgnoreCase) ||
+                                                       x.Method.StartsWith($"{methodName}("))).ToList();
 
-                    if (mAssertsWithCollections.Count == methodAsserts.Count &&
-                        !assert.Value.StartsWith($"{leftSingle}.ShouldHaveSingleItem"))
-                    {
-                        Func<Assert, bool> countAssertPredicate = y => y.Value.StartsWith(left) || y.Value.StartsWith($"{leftSingle}.ShouldHaveSingleItem");
-                        var assertMethods = methodAsserts
-                            .Where(x => x.Asserts.Any(countAssertPredicate)).ToList();
-                        var assertMethodsWithCollections = assertMethods.SelectMany(x => x.Asserts).Where(countAssertPredicate).ToList();
-                        if (assertMethodsWithCollections.Any())
-                        {
-                            var assertValue = string.Empty;
-                            if (assertMethodsWithCollections.Any(x => x.Value.StartsWith($"{leftSingle}.ShouldHaveSingleItem")))
-                            {
-                                assertValue = $"{left}.ShouldBeGreaterThanOrEqualTo(1),";
-                            }
-                            else
-                            {
-                                var min = assertMethodsWithCollections.Select(x =>
-                                {
-                                    var startIndex = x.Value.LastIndexOf("(", StringComparison.InvariantCultureIgnoreCase) + 1;
-                                    var endIndex = x.Value.LastIndexOf(")", StringComparison.InvariantCultureIgnoreCase);
-                                    return Convert.ToInt32(x.Value.Substring(startIndex, endIndex - startIndex));
-                                }).Min();
-
-                                assertValue = $"{left}.ShouldBeGreaterThanOrEqualTo({min}),";
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(assertValue))
-                            {
-                                foreach (var assertMethod in assertMethods)
-                                {
-                                    assertMethod.Asserts.Add(new Assert(assertValue, string.Empty));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                var commonAsserts = new List<string>();
-                var outputBuilder = new StringBuilder();
                 if (methodAsserts.Any())
                 {
-                    var preAssertVariables = new List<string>();
-                    if (ChkIgnoreCollectionOrder.IsChecked)
+                    Func<Assert, bool> predicate = x =>
+                        x.Value.Contains(".ShouldBeGreaterThanOrEqualTo") || x.Value.Contains(".ShouldHaveSingleItem");
+                    var mAssertsWithCollections = methodAsserts.Where(x => x.Asserts.Any(predicate)).ToList();
+                    var assertWithElements = mAssertsWithCollections.SelectMany(x => x.Asserts).ToList();
+                    foreach (var assert in assertWithElements.Where(predicate))
                     {
-                        var collectionAsserts = methodAsserts.SelectMany(x => x.Asserts)
-                            .Where(x => x.Value.IndexOf("].ShouldBe(", StringComparison.InvariantCulture) != -1).ToList();
-                        foreach (Assert assert in collectionAsserts)
+                        var left = assert.Value.Substring(0, assert.Value.LastIndexOf('.'));
+                        var leftSingle = left.Replace(".Count", string.Empty).Replace(".Length", string.Empty);
+                        foreach (var assertMethod in methodAsserts.Where(x => x.Asserts.All(y =>
+                            !y.Value.StartsWith(left) && !y.Value.StartsWith($"{leftSingle}.ShouldHaveSingleItem"))))
                         {
-                            var assertValue = assert.Value;
-                            var shoudlyIndex = assertValue.IndexOf("ShouldBe(", StringComparison.InvariantCulture) + 9;
-                            var expected = assertValue.Substring(shoudlyIndex, assertValue.LastIndexOf(")", StringComparison.InvariantCulture) - shoudlyIndex);
-                            var actualList = assertValue.Substring(0, shoudlyIndex).Replace("() => ", string.Empty);
-                            actualList = actualList.Substring(0, actualList.LastIndexOf("[", StringComparison.InvariantCulture));
-
-                            var actualListVariable = $"{actualList.Split('.').LastOrDefault()?.TrimStart('_')}Array".ToCamelCase();
-                            var unknownTypeList = actualList.Trim(')');
-                            var unknownTypeIndex = unknownTypeList.LastIndexOf(")", StringComparison.InvariantCulture) + 1;
-                            if (unknownTypeIndex != 0)
-                            {
-                                actualListVariable = $"{unknownTypeList.Substring(unknownTypeIndex, unknownTypeList.Length - unknownTypeIndex).TrimStart('_')}Array"
-                                    .TrimStart('.')
-                                    .ToCamelCase();
-
-                                assert.Value = expected.StartsWith("Tuple.Create") &&  expected.ContainsNotAnyNullLiterals()
-                                    ? $"() => ShouldContain({actualListVariable}, {expected.Replace("Tuple.Create(", string.Empty)},"
-                                    : $"() => {actualListVariable}.ShouldContain({expected}),";
-                                
-                                preAssertVariables.Add($"            var {actualListVariable} = {actualList.Replace("((", "(").TrimEnd(')')};\r\n");
-                            }
-                            else
-                            {
-                                assert.Value = expected.StartsWith("Tuple.Create") && expected.ContainsNotAnyNullLiterals()
-                                    ? $"() => ShouldContain({actualList}, {expected.Replace("Tuple.Create(", string.Empty)},"
-                                    : $"() => {actualList}.ShouldContain({expected}),";
-                            }
-                        }
-                    }
-                    else
-                    {
-                        var tupleAsserts = methodAsserts.SelectMany(x => x.Asserts)
-                            .Where(x => x.Value.IndexOf("].ShouldBe(", StringComparison.InvariantCulture) != -1 && 
-                                        x.Value.Contains("Tuple.Create(") &&
-                                        x.Value.ContainsNotAnyNullLiterals()).ToList();
-
-                        foreach (Assert assert in tupleAsserts)
-                        {
-                            var assertValue = assert.Value;
-                            var shoudlyIndex = assertValue.IndexOf("ShouldBe(", StringComparison.InvariantCulture) + 9;
-                            var expected = assertValue.Substring(shoudlyIndex, assertValue.LastIndexOf(")", StringComparison.InvariantCulture) - shoudlyIndex);
-                            var actualList = assertValue.Substring(0, shoudlyIndex).Replace("() => ", string.Empty);
-                            var arrayStartIndex = actualList.LastIndexOf("[", StringComparison.InvariantCulture);
-                            var arrayEndIndex = actualList.LastIndexOf("]", StringComparison.InvariantCulture);
-                            var arrayIndex = actualList.Substring(arrayStartIndex + 1, arrayEndIndex - arrayStartIndex - 1);
-                            actualList = actualList.Substring(0, arrayStartIndex);
-
-                            var actualListVariable = $"{actualList.Split('.').LastOrDefault()?.TrimStart('_')}Array".ToCamelCase();
-                            var unknownTypeList = actualList.Trim(')');
-                            var unknownTypeIndex = unknownTypeList.LastIndexOf(")", StringComparison.InvariantCulture) + 1;
-                            if (unknownTypeIndex != 0)
-                            {
-                                actualListVariable = $"{unknownTypeList.Substring(unknownTypeIndex, unknownTypeList.Length - unknownTypeIndex).TrimStart('_')}Array"
-                                    .TrimStart('.')
-                                    .ToCamelCase();
-
-                                assert.Value = $"() => ShouldEqual({actualListVariable}[{arrayIndex}], {expected.Replace("Tuple.Create(", string.Empty)},";
-
-                                preAssertVariables.Add($"            var {actualListVariable} = {actualList.Replace("((", "(").TrimEnd(')')};\r\n");
-                            }
-                            else
-                            {
-                                assert.Value = $"() => ShouldEqual({actualList}[{arrayIndex}], {expected.Replace("Tuple.Create(", string.Empty)},";
-                            }
-                        }
-                    }
-
-                    preAssertVariables = preAssertVariables.Distinct().ToList();
-
-                    var assertString = new AssertString
-                    {
-                        Name = methodName,
-                        ReplaceLocation = method.GetLocation().GetLineSpan().EndLinePosition.Line
-                    };
-
-                    var preConditionAsserts = PreConditionAsserts();
-                    var nonPreConditionAsserts = NonPreConditionAsserts();
-                    if (methodAsserts.Count == 1)
-                    {
-                        commonAsserts.AddRange(methodAsserts.First().Asserts.Where(x => !x.Skip).Select(x => x.Value.Replace(".ShouldBeGreaterThanOrEqualTo(", ".ShouldBe(")));
-                        AddCommonAsserts(commonAsserts, outputBuilder, preAssertVariables);
-                    }
-                    else
-                    {
-                        foreach (var methodAssert in methodAsserts)
-                        {
-                            methodAssert.Asserts = methodAssert.Asserts.Where(x => !x.Skip).ToList();
+                            var assertValue = $"{leftSingle}.ShouldBeEmpty(),";
+                            assertMethod.Asserts.Add(new Assert(assertValue, string.Empty));
                         }
 
-                        var unCommonOutputBuilder = new StringBuilder();
-                        var parameterizedTests = new List<Assert>();
-                        var testCases = method.TestCases();
-                        for (var index = 0; index < methodAsserts.Count; index++)
+                        if (mAssertsWithCollections.Count == methodAsserts.Count &&
+                            !assert.Value.StartsWith($"{leftSingle}.ShouldHaveSingleItem"))
                         {
-                            var methodAssert = methodAsserts[index];
-                            var uncommonAsserts = new List<string>();
-                            foreach (var assert in methodAssert.Asserts)
+                            Func<Assert, bool> countAssertPredicate = y =>
+                                y.Value.StartsWith(left) || y.Value.StartsWith($"{leftSingle}.ShouldHaveSingleItem");
+                            var assertMethods = methodAsserts
+                                .Where(x => x.Asserts.Any(countAssertPredicate)).ToList();
+                            var assertMethodsWithCollections = assertMethods.SelectMany(x => x.Asserts)
+                                .Where(countAssertPredicate).ToList();
+                            if (assertMethodsWithCollections.Any())
                             {
-                                var assertMethods = methodAsserts
-                                    .Where(x => x.Method != methodAssert.Method &&
-                                                x.Method.Split('(')[0].Equals(methodAssert.Method.Split('(')[0])).ToList();
-                                if (assertMethods.All(x => x.Asserts.Any(y => y.Value == assert.Value)))
+                                var assertValue = string.Empty;
+                                if (assertMethodsWithCollections.Any(x =>
+                                    x.Value.StartsWith($"{leftSingle}.ShouldHaveSingleItem")))
                                 {
-                                    commonAsserts.Add(assert.Value);
-                                    continue;
+                                    assertValue = $"{left}.ShouldBeGreaterThanOrEqualTo(1),";
+                                }
+                                else
+                                {
+                                    var min = assertMethodsWithCollections.Select(x =>
+                                    {
+                                        var startIndex =
+                                            x.Value.LastIndexOf("(", StringComparison.InvariantCultureIgnoreCase) + 1;
+                                        var endIndex = x.Value.LastIndexOf(")",
+                                            StringComparison.InvariantCultureIgnoreCase);
+                                        return Convert.ToInt32(x.Value.Substring(startIndex, endIndex - startIndex));
+                                    }).Min();
+
+                                    assertValue = $"{left}.ShouldBeGreaterThanOrEqualTo({min}),";
                                 }
 
-                                if (ChkParameterizedAsserts.IsChecked &&
-                                    assert.Type.IsSimple() &&
-                                    testCases.Any())
+                                if (!string.IsNullOrWhiteSpace(assertValue))
                                 {
-                                    var assertValue = assert.Value.StandardBooleanAssert();
-                                    var shouldBeIndex = assertValue.IndexOf("ShouldBe(", StringComparison.InvariantCulture);
-                                    var shouldBeCollectionIndex = assertValue.IndexOf("].ShouldBe(", StringComparison.InvariantCulture);
-                                    if (shouldBeIndex != -1 && shouldBeCollectionIndex == -1)
+                                    foreach (var assertMethod in assertMethods)
                                     {
-                                        var assertDeclaration = assertValue.Substring(0, shouldBeIndex);
-                                        var assertList = assertMethods.SelectMany(x => x.Asserts)
-                                            .Where(x => x.Value.StandardBooleanAssert().StartsWith($"{assertDeclaration}ShouldBe("))
-                                            .ToList();
-                                        var parameterizedTest = assertList.Count == assertMethods.Count;
-                                        if (parameterizedTest)
+                                        assertMethod.Asserts.Add(new Assert(assertValue, string.Empty));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    var commonAsserts = new List<string>();
+                    var outputBuilder = new StringBuilder();
+                    if (methodAsserts.Any())
+                    {
+                        var preAssertVariables = new List<string>();
+                        if (ChkIgnoreCollectionOrder.IsChecked)
+                        {
+                            var collectionAsserts = methodAsserts.SelectMany(x => x.Asserts)
+                                .Where(x => x.Value.IndexOf("].ShouldBe(", StringComparison.InvariantCulture) != -1)
+                                .ToList();
+                            foreach (Assert assert in collectionAsserts)
+                            {
+                                var assertValue = assert.Value;
+                                var shoudlyIndex = assertValue.IndexOf("ShouldBe(", StringComparison.InvariantCulture) +
+                                                   9;
+                                var expected = assertValue.Substring(shoudlyIndex,
+                                    assertValue.LastIndexOf(")", StringComparison.InvariantCulture) - shoudlyIndex);
+                                var actualList = assertValue.Substring(0, shoudlyIndex).Replace("() => ", string.Empty);
+                                actualList = actualList.Substring(0,
+                                    actualList.LastIndexOf("[", StringComparison.InvariantCulture));
+
+                                var actualListVariable = $"{actualList.Split('.').LastOrDefault()?.TrimStart('_')}Array"
+                                    .ToCamelCase();
+                                var unknownTypeList = actualList.Trim(')');
+                                var unknownTypeIndex =
+                                    unknownTypeList.LastIndexOf(")", StringComparison.InvariantCulture) + 1;
+                                if (unknownTypeIndex != 0)
+                                {
+                                    actualListVariable =
+                                        $"{unknownTypeList.Substring(unknownTypeIndex, unknownTypeList.Length - unknownTypeIndex).TrimStart('_')}Array"
+                                            .TrimStart('.')
+                                            .ToCamelCase();
+
+                                    assert.Value = expected.StartsWith("Tuple.Create") &&
+                                                   expected.ContainsNotAnyNullLiterals()
+                                        ? $"() => ShouldContain({actualListVariable}, {expected.Replace("Tuple.Create(", string.Empty)},"
+                                        : $"() => {actualListVariable}.ShouldContain({expected}),";
+
+                                    preAssertVariables.Add(
+                                        $"            var {actualListVariable} = {actualList.Replace("((", "(").TrimEnd(')')};\r\n");
+                                }
+                                else
+                                {
+                                    assert.Value = expected.StartsWith("Tuple.Create") &&
+                                                   expected.ContainsNotAnyNullLiterals()
+                                        ? $"() => ShouldContain({actualList}, {expected.Replace("Tuple.Create(", string.Empty)},"
+                                        : $"() => {actualList}.ShouldContain({expected}),";
+                                }
+                            }
+                        }
+                        else
+                        {
+                            var tupleAsserts = methodAsserts.SelectMany(x => x.Asserts)
+                                .Where(x => x.Value.IndexOf("].ShouldBe(", StringComparison.InvariantCulture) != -1 &&
+                                            x.Value.Contains("Tuple.Create(") &&
+                                            x.Value.ContainsNotAnyNullLiterals()).ToList();
+
+                            foreach (Assert assert in tupleAsserts)
+                            {
+                                var assertValue = assert.Value;
+                                var shoudlyIndex = assertValue.IndexOf("ShouldBe(", StringComparison.InvariantCulture) +
+                                                   9;
+                                var expected = assertValue.Substring(shoudlyIndex,
+                                    assertValue.LastIndexOf(")", StringComparison.InvariantCulture) - shoudlyIndex);
+                                var actualList = assertValue.Substring(0, shoudlyIndex).Replace("() => ", string.Empty);
+                                var arrayStartIndex = actualList.LastIndexOf("[", StringComparison.InvariantCulture);
+                                var arrayEndIndex = actualList.LastIndexOf("]", StringComparison.InvariantCulture);
+                                var arrayIndex = actualList.Substring(arrayStartIndex + 1,
+                                    arrayEndIndex - arrayStartIndex - 1);
+                                actualList = actualList.Substring(0, arrayStartIndex);
+
+                                var actualListVariable = $"{actualList.Split('.').LastOrDefault()?.TrimStart('_')}Array"
+                                    .ToCamelCase();
+                                var unknownTypeList = actualList.Trim(')');
+                                var unknownTypeIndex =
+                                    unknownTypeList.LastIndexOf(")", StringComparison.InvariantCulture) + 1;
+                                if (unknownTypeIndex != 0)
+                                {
+                                    actualListVariable =
+                                        $"{unknownTypeList.Substring(unknownTypeIndex, unknownTypeList.Length - unknownTypeIndex).TrimStart('_')}Array"
+                                            .TrimStart('.')
+                                            .ToCamelCase();
+
+                                    assert.Value =
+                                        $"() => ShouldEqual({actualListVariable}[{arrayIndex}], {expected.Replace("Tuple.Create(", string.Empty)},";
+
+                                    preAssertVariables.Add(
+                                        $"            var {actualListVariable} = {actualList.Replace("((", "(").TrimEnd(')')};\r\n");
+                                }
+                                else
+                                {
+                                    assert.Value =
+                                        $"() => ShouldEqual({actualList}[{arrayIndex}], {expected.Replace("Tuple.Create(", string.Empty)},";
+                                }
+                            }
+                        }
+
+                        preAssertVariables = preAssertVariables.Distinct().ToList();
+
+                        var assertString = new AssertString
+                        {
+                            Name = methodName,
+                            ReplaceLocation = method.GetLocation().GetLineSpan().EndLinePosition.Line
+                        };
+
+                        var preConditionAsserts = PreConditionAsserts();
+                        var nonPreConditionAsserts = NonPreConditionAsserts();
+                        if (methodAsserts.Count == 1)
+                        {
+                            commonAsserts.AddRange(methodAsserts.First().Asserts.Where(x => !x.Skip).Select(x =>
+                                x.Value.Replace(".ShouldBeGreaterThanOrEqualTo(", ".ShouldBe(")));
+                            AddCommonAsserts(commonAsserts, outputBuilder, preAssertVariables);
+                        }
+                        else
+                        {
+                            foreach (var methodAssert in methodAsserts)
+                            {
+                                methodAssert.Asserts = methodAssert.Asserts.Where(x => !x.Skip).ToList();
+                            }
+
+                            var unCommonOutputBuilder = new StringBuilder();
+                            var parameterizedTests = new List<Assert>();
+                            var testCases = method.TestCases();
+                            for (var index = 0; index < methodAsserts.Count; index++)
+                            {
+                                var methodAssert = methodAsserts[index];
+                                var uncommonAsserts = new List<string>();
+                                foreach (var assert in methodAssert.Asserts)
+                                {
+                                    var assertMethods = methodAsserts
+                                        .Where(x => x.Method != methodAssert.Method &&
+                                                    x.Method.Split('(')[0].Equals(methodAssert.Method.Split('(')[0]))
+                                        .ToList();
+                                    if (assertMethods.All(x => x.Asserts.Any(y => y.Value == assert.Value)))
+                                    {
+                                        commonAsserts.Add(assert.Value);
+                                        continue;
+                                    }
+
+                                    if (ChkParameterizedAsserts.IsChecked &&
+                                        assert.Type.IsSimple() &&
+                                        testCases.Any())
+                                    {
+                                        var assertValue = assert.Value.StandardBooleanAssert();
+                                        var shouldBeIndex = assertValue.IndexOf("ShouldBe(",
+                                            StringComparison.InvariantCulture);
+                                        var shouldBeCollectionIndex = assertValue.IndexOf("].ShouldBe(",
+                                            StringComparison.InvariantCulture);
+                                        if (shouldBeIndex != -1 && shouldBeCollectionIndex == -1)
                                         {
-                                            assert.Value = assertValue;
-                                            parameterizedTests.Add(assert);
-                                            continue;
+                                            var assertDeclaration = assertValue.Substring(0, shouldBeIndex);
+                                            var assertList = assertMethods.SelectMany(x => x.Asserts)
+                                                .Where(x => x.Value.StandardBooleanAssert()
+                                                    .StartsWith($"{assertDeclaration}ShouldBe("))
+                                                .ToList();
+                                            var parameterizedTest = assertList.Count == assertMethods.Count;
+                                            if (parameterizedTest)
+                                            {
+                                                assert.Value = assertValue;
+                                                parameterizedTests.Add(assert);
+                                                continue;
+                                            }
                                         }
+                                    }
+
+                                    uncommonAsserts.Add(assert.Value);
+                                }
+
+                                var builder = new StringBuilder();
+                                var preUncommonAsserts = uncommonAsserts.Where(preConditionAsserts).ToList();
+                                var nonPreUncommonAsserts = uncommonAsserts.Where(nonPreConditionAsserts).ToList();
+
+                                SetUnCommonAsserts(preUncommonAsserts, builder);
+                                if (preAssertVariables.Any() &&
+                                    nonPreUncommonAsserts.Any() &&
+                                    preUncommonAsserts.Any(x => x.Contains(ShouldThrow) ||
+                                                                x.Contains(ShouldNotThrow)))
+                                {
+                                    builder.AppendLine();
+                                    builder.AppendLine();
+                                    foreach (var assertVariable in preAssertVariables)
+                                    {
+                                        builder.Append($"    {assertVariable.Replace("var ", string.Empty)}");
                                     }
                                 }
 
-                                uncommonAsserts.Add(assert.Value);
-                            }
-
-                            var builder = new StringBuilder();
-                            var preUncommonAsserts = uncommonAsserts.Where(preConditionAsserts).ToList();
-                            var nonPreUncommonAsserts = uncommonAsserts.Where(nonPreConditionAsserts).ToList();
-
-                            SetUnCommonAsserts(preUncommonAsserts, builder);
-                            if (preAssertVariables.Any() &&
-                                nonPreUncommonAsserts.Any() &&
-                                preUncommonAsserts.Any(x => x.Contains(ShouldThrow) ||
-                                                            x.Contains(ShouldNotThrow)))
-                            {
-                                builder.AppendLine();
-                                builder.AppendLine();
-                                foreach (var assertVariable in preAssertVariables)
+                                if (preUncommonAsserts.Any() &&
+                                    nonPreUncommonAsserts.Any())
                                 {
-                                    builder.Append($"    {assertVariable.Replace("var ", string.Empty)}");
+                                    builder.AppendLine();
+                                }
+
+                                SetUnCommonAsserts(nonPreUncommonAsserts, builder);
+
+                                if (uncommonAsserts.Any())
+                                {
+                                    var methodArguments = methodAssert.Method.WithLineBreaks().TrimEnd(')');
+                                    unCommonOutputBuilder.AppendFormat(
+                                        index < methodAsserts.Count - 1
+                                            ? ParameterizedTemplate
+                                            : ParameterizedTemplateWithoutLine,
+                                        methodArguments.Substring(
+                                            methodArguments.IndexOf("(", StringComparison.InvariantCultureIgnoreCase) +
+                                            1),
+                                        builder);
                                 }
                             }
 
-                            if (preUncommonAsserts.Any() &&
-                                nonPreUncommonAsserts.Any())
+                            if (parameterizedTests.Any())
                             {
-                                builder.AppendLine();
-                            }
-
-                            SetUnCommonAsserts(nonPreUncommonAsserts, builder);
-
-                            if (uncommonAsserts.Any())
-                            {
-                                var methodArguments = methodAssert.Method.WithLineBreaks().TrimEnd(')');
-                                unCommonOutputBuilder.AppendFormat(
-                                    index < methodAsserts.Count - 1
-                                        ? ParameterizedTemplate
-                                        : ParameterizedTemplateWithoutLine,
-                                    methodArguments.Substring(methodArguments.IndexOf("(", StringComparison.InvariantCultureIgnoreCase) + 1),
-                                    builder);
-                            }
-                        }
-
-                        if (parameterizedTests.Any())
-                        {
-                            foreach (var testCase in testCases)
-                            {
-                                testCase.Body = testCase.Body
-                                    .Trim(testCase.ClosingCharacter)
-                                    .TrimEnd()
-                                    .Trim(')');
-                            }
-
-                            var parameterizedAsserts = parameterizedTests
-                                .GroupBy(x => x.Value.Substring(0, x.Value.IndexOf("ShouldBe", StringComparison.InvariantCultureIgnoreCase)))
-                                .Select(x => new
+                                foreach (var testCase in testCases)
                                 {
-                                    Declarator = x.Key,
-                                    x.First().Type,
-                                    Values = x.Select(y =>
+                                    testCase.Body = testCase.Body
+                                        .Trim(testCase.ClosingCharacter)
+                                        .TrimEnd()
+                                        .Trim(')');
+                                }
+
+                                var parameterizedAsserts = parameterizedTests
+                                    .GroupBy(x => x.Value.Substring(0,
+                                        x.Value.IndexOf("ShouldBe", StringComparison.InvariantCultureIgnoreCase)))
+                                    .Select(x => new
                                     {
-                                        var shoudlyIndex = y.Value.IndexOf("ShouldBe", StringComparison.InvariantCultureIgnoreCase) + 9;
-                                        var lastIndexOf = y.Value.LastIndexOf(")", StringComparison.InvariantCulture);
-                                        return y.Value.Substring(shoudlyIndex, lastIndexOf - shoudlyIndex);
-                                    }).ToList()
-                                });
+                                        Declarator = x.Key,
+                                        x.First().Type,
+                                        Values = x.Select(y =>
+                                        {
+                                            var shoudlyIndex =
+                                                y.Value.IndexOf("ShouldBe",
+                                                    StringComparison.InvariantCultureIgnoreCase) + 9;
+                                            var lastIndexOf =
+                                                y.Value.LastIndexOf(")", StringComparison.InvariantCulture);
+                                            return y.Value.Substring(shoudlyIndex, lastIndexOf - shoudlyIndex);
+                                        }).ToList()
+                                    });
 
-                            var methodParameterList = method.ParameterList();
-                            methodParameterList.UpdatedList = methodParameterList.OriginalList.TrimEnd().Trim(')');
-                            foreach (var assert in parameterizedAsserts)
-                            {
-                                var paramterName = assert.Declarator;
-                                paramterName = paramterName.Replace("() => ", string.Empty)
-                                    .Replace(".", string.Empty)
-                                    .Replace("_", string.Empty);
-                                var methodParameter = $"expected{paramterName.ToPascalCase()}"
-                                    .ToCamelCase();
-                                var unknownTypeIndex = paramterName.IndexOf(")", StringComparison.InvariantCulture) + 1;
-                                if (unknownTypeIndex != 0)
+                                var methodParameterList = method.ParameterList();
+                                methodParameterList.UpdatedList = methodParameterList.OriginalList.TrimEnd().Trim(')');
+                                foreach (var assert in parameterizedAsserts)
                                 {
-                                    methodParameter = $"expected{paramterName.Substring(unknownTypeIndex, paramterName.Length - unknownTypeIndex).ToPascalCase()}"
-                                        .Replace(")", string.Empty)
+                                    var paramterName = assert.Declarator;
+                                    paramterName = paramterName.Replace("() => ", string.Empty)
+                                        .Replace(".", string.Empty)
+                                        .Replace("_", string.Empty);
+                                    var methodParameter = $"expected{paramterName.ToPascalCase()}"
                                         .ToCamelCase();
+                                    var unknownTypeIndex =
+                                        paramterName.IndexOf(")", StringComparison.InvariantCulture) + 1;
+                                    if (unknownTypeIndex != 0)
+                                    {
+                                        methodParameter =
+                                            $"expected{paramterName.Substring(unknownTypeIndex, paramterName.Length - unknownTypeIndex).ToPascalCase()}"
+                                                .Replace(")", string.Empty)
+                                                .ToCamelCase();
+                                    }
+
+                                    var assertType = assert.Type != "enum"
+                                        ? assert.Type
+                                        : "object";
+                                    methodParameterList.UpdatedList += $", {assertType} {methodParameter}";
+                                    commonAsserts.Add($"{assert.Declarator}ShouldBe({methodParameter}),");
+
+                                    for (var index = 0; index < assert.Values.Count; index++)
+                                    {
+                                        testCases[index].Body += $", {assert.Values[index]}";
+                                    }
                                 }
 
-                                var assertType = assert.Type != "enum"
-                                    ? assert.Type
-                                    : "object";
-                                methodParameterList.UpdatedList += $", {assertType} {methodParameter}";
-                                commonAsserts.Add($"{assert.Declarator}ShouldBe({methodParameter}),");
+                                methodParameterList.UpdatedList += ')';
 
-                                for (var index = 0; index < assert.Values.Count; index++)
+                                foreach (var testCase in testCases)
                                 {
-                                    testCases[index].Body += $", {assert.Values[index]}";
+                                    testCase.Body += $"){testCase.ClosingCharacter}";
                                 }
+
+                                updatedMethods.Add(methodParameterList);
+                                updatedTestCases.AddRange(testCases);
                             }
 
-                            methodParameterList.UpdatedList += ')';
-
-                            foreach (var testCase in testCases)
+                            AddCommonAsserts(commonAsserts, outputBuilder, preAssertVariables);
+                            if (!string.IsNullOrWhiteSpace(unCommonOutputBuilder.ToString()) && commonAsserts.Any())
                             {
-                                testCase.Body += $"){testCase.ClosingCharacter}";
+                                outputBuilder.AppendLine();
                             }
 
-                            updatedMethods.Add(methodParameterList);
-                            updatedTestCases.AddRange(testCases);
+                            outputBuilder.Append(unCommonOutputBuilder);
                         }
 
-                        AddCommonAsserts(commonAsserts, outputBuilder, preAssertVariables);
-                        if (!string.IsNullOrWhiteSpace(unCommonOutputBuilder.ToString()) && commonAsserts.Any())
-                        {
-                            outputBuilder.AppendLine();
-                        }
-
-                        outputBuilder.Append(unCommonOutputBuilder);
+                        assertString.Content = outputBuilder.ToString();
+                        assertStrings.Add(assertString);
                     }
-
-                    assertString.Content = outputBuilder.ToString();
-                    assertStrings.Add(assertString);
                 }
             }
 

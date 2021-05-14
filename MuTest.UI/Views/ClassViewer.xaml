@@ -196,10 +196,20 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <dx:SimpleButton
+                            <dxe:CheckEdit
+                                Name="ChkDeepClone"
+                                Grid.Column="0"
+                                Grid.Row="3"
+                                Visibility="Visible"
+                                IsChecked="{Binding ChkDeepClone.IsChecked}"
+                                Margin="0 5 0 0"
+                                FontFamily="Consolas"
+                                Content="Deep Clone"
+                                IsThreeState="False" />
+                            <dx:SimpleButton 
                                 Name="BtnGenerateAsserts"
                                 Content="Static Asserts"
-                                Visibility="Visible"
+                                Visibility="Hidden"
                                 Margin="0 5 5 0"
                                 Grid.Column="0"
                                 Grid.Row="3"
@@ -216,8 +226,8 @@
                                 Content="Dynamic Asserts"
                                 Visibility="Visible"
                                 Margin="0 5 5 0"
-                                Grid.Column="0"
-                                Grid.Row="2"
+                                Grid.Column="1"
+                                Grid.Row="3"
                                 Height="30"
                                 FontFamily="Consolas">
                                 <dxmvvm:Interaction.Behaviors>
@@ -228,8 +238,8 @@
                             </dx:SimpleButton>
                             <dxe:CheckEdit
                                 Name="ChkUseClassFilter"
-                                Grid.Column="1"
-                                Grid.Row="3"
+                                Grid.Column="0"
+                                Grid.Row="2"
                                 Visibility="Visible"
                                 IsChecked="{Binding ChkUseClassFilter.IsChecked}"
                                 Margin="0 5 0 0"

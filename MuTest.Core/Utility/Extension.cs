@@ -280,7 +280,7 @@ namespace MuTest.Core.Utility
                 case "bool":
                     return "false";
                 default:
-                    return $"default({type})";
+                    return "new object()";
             }
         }
 
